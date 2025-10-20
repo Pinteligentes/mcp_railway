@@ -145,10 +145,14 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
 # ===========
 # Crea el ASGI de MCP con la API disponible en tu versión
 try:
-    mcp_app = mcp.http_app(path="/")  # en algunas versiones existe
+    # Intentar sin argumentos para evitar prefijos forzados según versión
+    mcp_app = mcp.http_app()  # type: ignore
+except TypeError:
+    # Algunas versiones requieren 'path' explícito
+    mcp_app = mcp.http_app(path="/")  # type: ignore
 except AttributeError:
     if hasattr(mcp, "streamable_http_app"):
-        mcp_app = mcp.streamable_http_app()  # versiones previas
+        mcp_app = mcp.streamable_http_app()  # type: ignore
     else:
         raise RuntimeError(
             "Tu versión de mcp no soporta ni http_app() ni streamable_http_app(). "
@@ -162,6 +166,11 @@ app.add_middleware(BearerAuthMiddleware)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+# Evita 404 en GET raiz durante probes; POST "/" sigue siendo atendido por MCP
+@app.get("/")
+def root():
+    return {"status": "ok", "hint": "MCP mounted at root; use POST with MCP client."}
 
 # ✅ Monta el MCP en la raíz: todas las rutas (excepto /health) las atiende MCP
 app.mount("/", mcp_app)
