@@ -1,7 +1,8 @@
 from __future__ import annotations
-import os, sys
+import os
+import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import pandas as pd
 from fastapi import FastAPI, Request, HTTPException
@@ -15,7 +16,6 @@ BASE_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = BASE_DIR / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-# Importa módulos (si fallan, más abajo podemos agregar fallback subprocess)
 try:
     import build_layer_10_financial as MOD_FINANCIAL
 except Exception:
@@ -36,7 +36,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         # Permite health-check sin Auth
         if request.url.path in ("/health", "/"):
             return await call_next(request)
-        # MCP via HTTP usa requests a /mcp/*
+        # Protege el endpoint MCP y cualquier otra ruta
         if REQUIRED_TOKEN:
             auth = request.headers.get("Authorization", "")
             if not auth.startswith("Bearer "):
@@ -63,7 +63,7 @@ def build_layer_10_financial(
     pad: int = 2,
 ) -> Dict[str, Any]:
     """
-    Genera la capa financiera. Requiere columnas: code, description, value.
+    Genera la capa 10 (financiera). Requisitos de columnas: code, description, value.
     """
     if MOD_FINANCIAL is None:
         raise RuntimeError("Módulo build_layer_10_financial no disponible")
@@ -78,7 +78,7 @@ def build_layer_10_financial(
     )
     with pd.ExcelWriter(output_path, engine="openpyxl") as xls:
         df_out.to_excel(xls, index=False, sheet_name=sheet_name)
-    return {"ok": True, "output": output_path, "rows": len(df_out)}
+    return {"ok": True, "output": output_path, "rows": int(len(df_out))}
 
 @mcp.tool()
 def build_layer_20_personal(
@@ -98,16 +98,35 @@ def build_layer_20_personal(
     out   = MOD_PERSONAL.build_layer(roles, emps, parent_code="20")
     with pd.ExcelWriter(output_path, engine="openpyxl") as xls:
         out.to_excel(xls, index=False, sheet_name="20 Personal")
-    return {"ok": True, "output": output_path, "rows": len(out)}
+    return {"ok": True, "output": output_path, "rows": int(len(out))}
 
-# Recurso opcional para listar archivos (útil en remoto)
-@mcp.resource("file.list")
-def list_files(dir_path: str = ".") -> Dict[str, Any]:
-    p = (BASE_DIR / dir_path).resolve()
-    items = []
-    for child in p.glob("*"):
-        items.append({"name": child.name, "is_dir": child.is_dir(),
-                      "size": (child.stat().st_size if child.is_file() else None)})
+# ===========
+# Utilidad: listar archivos como TOOL (no resource)
+# ===========
+@mcp.tool()
+def file_list(dir_path: str = ".") -> Dict[str, Any]:
+    """
+    Lista archivos del directorio indicado (relativo a /app/app o al cwd del contenedor).
+    Ejemplo: file_list(dir_path="/data") si montaste un Volume en /data.
+    """
+    p = (BASE_DIR / dir_path).resolve() if not Path(dir_path).is_absolute() else Path(dir_path).resolve()
+    if not p.exists() or not p.is_dir():
+        return {"directory": str(p), "items": [], "note": "Directorio no existe o no es carpeta"}
+    items: List[Dict[str, Any]] = []
+    for child in p.iterdir():
+        try:
+            items.append({
+                "name": child.name,
+                "path": str(child),
+                "is_dir": child.is_dir(),
+                "size": (child.stat().st_size if child.is_file() else None),
+            })
+        except Exception as e:
+            items.append({
+                "name": child.name,
+                "path": str(child),
+                "error": str(e),
+            })
     return {"directory": str(p), "items": items}
 
 # ===========
