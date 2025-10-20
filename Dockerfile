@@ -22,6 +22,7 @@ RUN mkdir -p /data
 # Exponer puerto (Railway lo detecta por $PORT)
 EXPOSE 8080
 
-# Ejecución con Uvicorn de la app Starlette del MCP
-CMD ["uvicorn", "app.server_uvicorn:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+# Ejecución con Uvicorn de la app FastAPI que monta MCP en la raíz
+CMD ["uvicorn", "app.mcp_http:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+
 

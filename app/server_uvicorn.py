@@ -44,17 +44,12 @@ def build_layer_10_financial(
     no_parent_row: bool = False,
     pad: int = 2,
 ) -> Dict[str, Any]:
-    """
-    Genera la capa 10 (financiera). Requisitos de columnas: code, description, value.
-    """
     if MOD_FINANCIAL is None:
         raise RuntimeError("Módulo build_layer_10_financial no disponible")
     df_raw = MOD_FINANCIAL.read_table(input_path, sheet)
     df_norm = MOD_FINANCIAL.normalize_columns(df_raw)
     df_out = MOD_FINANCIAL.build_layer(
-        df_norm,
-        parent=parent,
-        pad=pad,
+        df_norm, parent=parent, pad=pad,
         include_parent_row=(not no_parent_row),
         parent_name=parent_name,
     )
@@ -70,9 +65,6 @@ def build_layer_20_personal(
     roles_sheet: Optional[str] = None,
     empleados_sheet: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Genera la capa 20 = Personal (Roles → Empleados).
-    """
     if MOD_PERSONAL is None:
         raise RuntimeError("Módulo build_layer_20_personal no disponible")
     roles = MOD_PERSONAL.load_roles(roles_path, roles_sheet)
@@ -84,10 +76,6 @@ def build_layer_20_personal(
 
 @mcp.tool()
 def file_list(dir_path: str = ".") -> Dict[str, Any]:
-    """
-    Lista archivos del directorio indicado (relativo o absoluto).
-    Ejemplo: file_list(dir_path="/data") si montaste un Volume en /data.
-    """
     p = Path(dir_path)
     if not p.is_absolute():
         p = (BASE_DIR / dir_path).resolve()
@@ -112,28 +100,33 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
             })
     return {"directory": str(p), "items": items}
 
-# =========== Construye la app MCP Starlette (versión-compatible) ===========
+# =========== Construye la app MCP ===========
+# ✅ IMPORTANTE: crear SIN forzar "path", para que no espere prefijo
 try:
-    mcp_app: Starlette = mcp.http_app(path="/mcp")  # si tu versión lo soporta
+    # Si tu versión trae http_app, NO pases path aquí:
+    mcp_app: Starlette = mcp.http_app()  # type: ignore
+except TypeError:
+    # Algunas versiones obligan 'path' -> usa el valor por defecto "/"
+    mcp_app: Starlette = mcp.http_app(path="/")  # type: ignore
 except AttributeError:
+    # Versiones previas: streamable_http_app sin argumentos
     mcp_app: Starlette = mcp.streamable_http_app()  # type: ignore
 
-# =========== App contenedora: monta MCP y hereda lifespan ===========
-# Heredamos el lifespan para inicializar el session manager de MCP correctamente
+# =========== App contenedora: Bearer + health + MCP sólo en /mcp ===========
 lifespan = getattr(mcp_app, "lifespan", None)
 container = Starlette(debug=False, lifespan=lifespan)
 
-# --- Auth (Bearer) middleware aplicado a TODA la app contenedora ---
 REQUIRED_TOKEN = os.getenv("MCP_BEARER_TOKEN", "").strip()
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Permitir health sin auth
+        # Health sin auth
         if request.url.path == "/health":
             return await call_next(request)
-        # Permitir preflight
+        # Preflight sin auth
         if request.method in ("OPTIONS", "HEAD"):
             return await call_next(request)
+        # Autenticación
         if REQUIRED_TOKEN:
             auth = request.headers.get("authorization", "")
             if not auth.startswith("Bearer "):
@@ -149,9 +142,13 @@ container.add_middleware(BearerAuthMiddleware)
 async def health(_request: Request):
     return JSONResponse({"status": "ok"})
 
-# ✅ Montamos la app MCP en /mcp y también en la raíz /
-container.mount("/mcp", mcp_app)
-container.mount("/", mcp_app)
+@container.route("/", methods=["GET"])
+async def root_info(_request: Request):
+    # Pista útil si alguien abre la raíz en el navegador
+    return JSONResponse({"status": "ok", "hint": "Use /mcp/ as the MCP server URL (with trailing slash)."})
 
-# app exportada para uvicorn
+# ✅ MCP únicamente en /mcp
+container.mount("/mcp", mcp_app)
+
+# Exporta app para uvicorn
 app = container
