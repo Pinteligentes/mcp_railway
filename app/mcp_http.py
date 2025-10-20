@@ -146,14 +146,13 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
 # ASGI app y rutas (compatibilidad de versiones) — MONTAJE EN RAÍZ "/"
 # ===========
 # Crea el ASGI de MCP con la API disponible en tu versión
-try:
-    # Fuerza el path en "/" para que las rutas estén en la raíz
-    mcp_app = mcp.http_app(path="/")  # type: ignore
-except (TypeError, AttributeError):
-    # Versiones previas: streamable_http_app sin argumentos
-    if hasattr(mcp, "streamable_http_app"):
-        mcp_app = mcp.streamable_http_app()  # type: ignore
-    else:
+if hasattr(mcp, "streamable_http_app"):
+    # Preferir streamable_http_app por compatibilidad amplia del handshake HTTP
+    mcp_app = mcp.streamable_http_app()  # type: ignore
+else:
+    try:
+        mcp_app = mcp.http_app(path="/")  # type: ignore
+    except Exception:
         raise RuntimeError(
             "Tu versión de mcp no soporta ni http_app() ni streamable_http_app(). "
             "Actualiza a mcp[fastmcp]>=1.12.0 en requirements.txt."
