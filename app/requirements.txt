@@ -1,4 +1,4 @@
-mcp[fastmcp]
+mcp[fastmcp]>=2.3
 fastapi
 uvicorn[standard]
 pandas

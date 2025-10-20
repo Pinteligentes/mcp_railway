@@ -132,13 +132,13 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
 # ===========
 # ASGI app y rutas
 # ===========
-mcp_app = mcp.http_app(path="/mcp")
-app = FastAPI(title="homolo-mcp")
+mcp_app = mcp.http_app(path="/mcp")   # requiere fastmcp >= 2.3
+app = FastAPI(title="homolo-mcp", lifespan=mcp_app.lifespan)
 app.add_middleware(BearerAuthMiddleware)
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-# Monta el endpoint MCP en /mcp
 app.mount("/mcp", mcp_app)
+
