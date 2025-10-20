@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, List
 
 import pandas as pd
 
-# Starlette (para middleware y /health)
+# Starlette
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -105,26 +105,30 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
     return {"directory": str(p), "items": items}
 
 # ===========
-# App Starlette del MCP + Bearer Middleware
+# Construye la app MCP Starlette (versión-compatible)
 # ===========
-# Obtiene la app Starlette nativa del MCP (versión compatible)
 try:
-    # algunas versiones tienen http_app(); si no, usamos streamable_http_app()
-    mcp_app: Starlette = mcp.http_app(path="/")  # type: ignore
+    mcp_app: Starlette = mcp.http_app(path="/mcp")  # si tu versión lo soporta
 except AttributeError:
+    # versiones previas: sin argumento 'path'
     mcp_app: Starlette = mcp.streamable_http_app()  # type: ignore
 
+# ===========
+# App contenedora que monta MCP en /mcp y añade health + passthrough /
+# ===========
+container = Starlette(debug=False)
+
+# --- Auth (Bearer) middleware aplicado a TODA la app contenedora ---
 REQUIRED_TOKEN = os.getenv("MCP_BEARER_TOKEN", "").strip()
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Permite /health sin auth
+        # Permitir health sin auth
         if request.url.path == "/health":
             return await call_next(request)
-        # Permite OPTIONS/HEAD sin auth (preflight)
+        # Permitir preflight
         if request.method in ("OPTIONS", "HEAD"):
             return await call_next(request)
-        # Validación Bearer
         if REQUIRED_TOKEN:
             auth = request.headers.get("authorization", "")
             if not auth.startswith("Bearer "):
@@ -134,12 +138,24 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
                 return JSONResponse({"detail": "Invalid Bearer token"}, status_code=403)
         return await call_next(request)
 
-mcp_app.add_middleware(BearerAuthMiddleware)
+container.add_middleware(BearerAuthMiddleware)
 
-# Health simple para comprobar vida
-@mcp_app.route("/health")
+@container.route("/health")
 async def health(_request: Request):
     return JSONResponse({"status": "ok"})
 
-# app exportado para Uvicorn
-app = mcp_app
+# Passthrough raíz → /mcp (sin redirección; preserva headers y método)
+@container.route("/", methods=["GET", "POST", "OPTIONS", "HEAD"])
+async def root_passthrough(request: Request):
+    scope = request.scope.copy()
+    # si el cliente usa '/', lo reenviamos internamente a '/mcp'
+    scope["path"] = "/mcp"
+    await mcp_app(scope, request.receive, request._send)
+    # respuesta placeholder (no se usa porque mcp_app ya envió respuesta)
+    return Response(status_code=204)
+
+# Monta la app MCP en /mcp (también funcionará si el cliente llama explícitamente /mcp)
+container.mount("/mcp", mcp_app)
+
+# app exportada para uvicorn
+app = container
