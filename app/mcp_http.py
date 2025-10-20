@@ -159,8 +159,9 @@ except (TypeError, AttributeError):
             "Actualiza a mcp[fastmcp]>=1.12.0 en requirements.txt."
         )
 
-# Evitar redirecciones automáticas que pierden headers
-app = FastAPI(title="homolo-mcp", redirect_slashes=False)
+# Evitar redirecciones automáticas que pierden headers y adoptar lifespan del MCP
+_lifespan = getattr(mcp_app, "lifespan", None)
+app = FastAPI(title="homolo-mcp", redirect_slashes=False, lifespan=_lifespan)
 app.add_middleware(BearerAuthMiddleware)
 
 @app.get("/health")
