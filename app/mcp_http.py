@@ -33,9 +33,11 @@ REQUIRED_TOKEN = os.getenv("MCP_BEARER_TOKEN")  # define en Railway
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Permite health-check sin Auth
         if request.url.path in ("/health", "/"):
             return await call_next(request)
-        # Permitir preflight y HEAD sin auth
+
+        # Permite preflight y HEAD sin auth (evita 401 en OPTIONS/HEAD)
         if request.method in ("OPTIONS", "HEAD"):
             return await call_next(request)
 
@@ -46,8 +48,8 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
             token = auth.split(" ", 1)[1].strip()
             if token != REQUIRED_TOKEN:
                 raise HTTPException(status_code=403, detail="Invalid Bearer token")
-        return await call_next(request)
 
+        return await call_next(request)
 
 # ===========
 # MCP server (tools)
@@ -155,12 +157,13 @@ except AttributeError:
             "Actualiza a mcp[fastmcp]>=1.12.0 en requirements.txt."
         )
 
-# IMPORTANTE: NO pasar lifespan=mcp_app.lifespan (en versiones viejas no existe)
+# Evitar redirecciones /mcp -> /mcp/ que hacen perder headers en algunos clientes
 app = FastAPI(title="homolo-mcp", redirect_slashes=False)
+app.add_middleware(BearerAuthMiddleware)
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-# expón el endpoint MCP en /mcp (independiente de cómo hayas creado mcp_app)
+# Monta el endpoint MCP en /mcp (usar SIEMPRE la URL sin barra final)
 app.mount("/mcp", mcp_app)
