@@ -178,9 +178,24 @@ async def mcp_root_proxy(request: Request):
     body = await request.body()
     # Reenvía headers relevantes (evita mutar Authorization)
     fwd_headers = {k: v for k, v in request.headers.items()}
+    candidate_paths = [
+        "/",
+        "/mcp",
+        "/mcp/",
+        "/rpc",
+        "/messages",
+        "/v1",
+        "/v1/",
+    ]
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=mcp_app), base_url="http://mcp-internal") as client:
-        resp = await client.post("/", content=body, headers=fwd_headers)
-        return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+        last_resp = None
+        for p in candidate_paths:
+            resp = await client.post(p, content=body, headers=fwd_headers)
+            last_resp = resp
+            if resp.status_code != 404:
+                return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+        # Si todas devolvieron 404, retornamos la última
+        return Response(content=(last_resp.content if last_resp else b"Not Found"), status_code=(last_resp.status_code if last_resp else 404), media_type=(last_resp.headers.get("content-type") if last_resp else "text/plain"))
 
 # ✅ Monta el MCP en la raíz: todas las rutas (excepto /health) las atiende MCP
 app.mount("/", mcp_app)
