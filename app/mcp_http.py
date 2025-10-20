@@ -33,10 +33,12 @@ REQUIRED_TOKEN = os.getenv("MCP_BEARER_TOKEN")  # define en Railway
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Permite health-check sin Auth
         if request.url.path in ("/health", "/"):
             return await call_next(request)
-        # Protege el endpoint MCP y cualquier otra ruta
+        # Permitir preflight y HEAD sin auth
+        if request.method in ("OPTIONS", "HEAD"):
+            return await call_next(request)
+
         if REQUIRED_TOKEN:
             auth = request.headers.get("Authorization", "")
             if not auth.startswith("Bearer "):
@@ -45,6 +47,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
             if token != REQUIRED_TOKEN:
                 raise HTTPException(status_code=403, detail="Invalid Bearer token")
         return await call_next(request)
+
 
 # ===========
 # MCP server (tools)
@@ -153,8 +156,7 @@ except AttributeError:
         )
 
 # IMPORTANTE: NO pasar lifespan=mcp_app.lifespan (en versiones viejas no existe)
-app = FastAPI(title="homolo-mcp")
-app.add_middleware(BearerAuthMiddleware)
+app = FastAPI(title="homolo-mcp", redirect_slashes=False)
 
 @app.get("/health")
 def health():
