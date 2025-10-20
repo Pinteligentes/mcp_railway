@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 import pandas as pd
 from fastapi import FastAPI, Request, HTTPException
 from starlette.responses import Response
+import httpx
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 
@@ -172,6 +173,15 @@ def health():
 @app.get("/")
 def root():
     return {"status": "ok", "hint": "MCP mounted at root; use POST with MCP client."}
+
+@app.post("/")
+async def mcp_post_root(request: Request):
+    # Minimal proxy: forward POST '/' to MCP's '/messages' endpoint for compatibility
+    body = await request.body()
+    headers = {k: v for k, v in request.headers.items()}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=mcp_app), base_url="http://mcp-internal") as client:
+        resp = await client.post("/messages", content=body, headers=headers)
+        return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
 
     
 
