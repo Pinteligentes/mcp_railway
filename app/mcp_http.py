@@ -128,17 +128,38 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
                 "error": str(e),
             })
     return {"directory": str(p), "items": items}
+#
+# ===========
+# ASGI app y rutas (compatibilidad de versiones)
+# ===========
+from fastapi import FastAPI
 
-# ===========
-# ASGI app y rutas
-# ===========
-mcp_app = mcp.http_app(path="/mcp")   # requiere fastmcp >= 2.3
-app = FastAPI(title="homolo-mcp", lifespan=mcp_app.lifespan)
+# Intenta la API nueva; si no existe, usa la compat streamable_http_app()
+mcp_app = None
+try:
+    # API más nueva (algunas versiones recientes)
+    mcp_app = mcp.http_app(path="/mcp")  # podría no existir en tu versión
+    app = FastAPI(title="homolo-mcp", lifespan=mcp_app.lifespan)
+    MOUNT_PATH = "/mcp"
+except AttributeError:
+    # API compatible disponible en mcp 1.12.x+
+    if hasattr(mcp, "streamable_http_app"):
+        mcp_app = mcp.streamable_http_app()
+        # En este modo no se pasa 'path' al crear la app; se monta en FastAPI:
+        app = FastAPI(title="homolo-mcp", lifespan=mcp_app.lifespan)
+        MOUNT_PATH = "/mcp"
+    else:
+        raise RuntimeError(
+            "Tu versión de mcp no soporta ni http_app() ni streamable_http_app(). "
+            "Actualiza a mcp[fastmcp]>=1.12.0."
+        )
+
+# Middleware de Bearer que ya definiste:
 app.add_middleware(BearerAuthMiddleware)
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-app.mount("/mcp", mcp_app)
-
+# Monta el endpoint MCP en /mcp
+app.mount(MOUNT_PATH, mcp_app)
