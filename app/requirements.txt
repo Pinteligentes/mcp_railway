@@ -1,5 +1,4 @@
 mcp[fastmcp]>=1.12.0
-fastapi
 uvicorn[standard]
 pandas
 openpyxl

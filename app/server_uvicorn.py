@@ -3,7 +3,14 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+
 import pandas as pd
+
+# Starlette (para middleware y /health)
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # MCP (FastMCP)
 from mcp.server.fastmcp import FastMCP
@@ -97,16 +104,42 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
             })
     return {"directory": str(p), "items": items}
 
-if __name__ == "__main__":
-    # Arranca el servidor HTTP nativo del MCP
-    # NOTA: en algunas versiones el nombre del transporte es "http" y en otras "streamable_http".
-    host = "0.0.0.0"
-    port = int(os.getenv("PORT", 8080))
-    token = os.getenv("MCP_BEARER_TOKEN", "")
+# ===========
+# App Starlette del MCP + Bearer Middleware
+# ===========
+# Obtiene la app Starlette nativa del MCP (versión compatible)
+try:
+    # algunas versiones tienen http_app(); si no, usamos streamable_http_app()
+    mcp_app: Starlette = mcp.http_app(path="/")  # type: ignore
+except AttributeError:
+    mcp_app: Starlette = mcp.streamable_http_app()  # type: ignore
 
-    # Intenta API moderna (transport="http"); si falla, usa "streamable_http"
-    try:
-        mcp.run(transport="http", host=host, port=port, bearer_token=token or None)
-    except TypeError:
-        # versiones previas usan otro parámetro/valor
-        mcp.run(transport="streamable_http", host=host, port=port, bearer_token=token or None)
+REQUIRED_TOKEN = os.getenv("MCP_BEARER_TOKEN", "").strip()
+
+class BearerAuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Permite /health sin auth
+        if request.url.path == "/health":
+            return await call_next(request)
+        # Permite OPTIONS/HEAD sin auth (preflight)
+        if request.method in ("OPTIONS", "HEAD"):
+            return await call_next(request)
+        # Validación Bearer
+        if REQUIRED_TOKEN:
+            auth = request.headers.get("authorization", "")
+            if not auth.startswith("Bearer "):
+                return JSONResponse({"detail": "Missing Bearer token"}, status_code=401)
+            token = auth.split(" ", 1)[1].strip()
+            if token != REQUIRED_TOKEN:
+                return JSONResponse({"detail": "Invalid Bearer token"}, status_code=403)
+        return await call_next(request)
+
+mcp_app.add_middleware(BearerAuthMiddleware)
+
+# Health simple para comprobar vida
+@mcp_app.route("/health")
+async def health(_request: Request):
+    return JSONResponse({"status": "ok"})
+
+# app exportado para Uvicorn
+app = mcp_app

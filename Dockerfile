@@ -22,5 +22,5 @@ RUN mkdir -p /data
 # Exponer puerto (Railway lo detecta por $PORT)
 EXPOSE 8080
 
-# Comando de arranque (uvicorn ASGI)
-CMD ["python", "-u", "app/server_http.py"]
+# Ejecución con Uvicorn de la app Starlette del MCP
+CMD ["uvicorn", "app.server_uvicorn:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
