@@ -23,6 +23,6 @@ RUN mkdir -p /data
 EXPOSE 8080
 
 # Ejecución con Uvicorn de la app FastAPI que monta MCP en la raíz
-CMD ["uvicorn", "app.mcp_http:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+CMD ["sh", "-c", "uvicorn app.mcp_http:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers"]
 
 
