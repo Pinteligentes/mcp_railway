@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any, List
 
 import pandas as pd
 from fastapi import FastAPI, Request, HTTPException
+from starlette.responses import Response
+import httpx
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # MCP (FastMCP)
@@ -145,12 +147,10 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
 # ===========
 # Crea el ASGI de MCP con la API disponible en tu versión
 try:
-    # Intentar sin argumentos para evitar prefijos forzados según versión
-    mcp_app = mcp.http_app()  # type: ignore
-except TypeError:
-    # Algunas versiones requieren 'path' explícito
+    # Fuerza el path en "/" para que las rutas estén en la raíz
     mcp_app = mcp.http_app(path="/")  # type: ignore
-except AttributeError:
+except (TypeError, AttributeError):
+    # Versiones previas: streamable_http_app sin argumentos
     if hasattr(mcp, "streamable_http_app"):
         mcp_app = mcp.streamable_http_app()  # type: ignore
     else:
@@ -171,6 +171,16 @@ def health():
 @app.get("/")
 def root():
     return {"status": "ok", "hint": "MCP mounted at root; use POST with MCP client."}
+
+# Proxy explícito para POST "/" hacia el MCP app, por compatibilidad
+@app.post("/")
+async def mcp_root_proxy(request: Request):
+    body = await request.body()
+    # Reenvía headers relevantes (evita mutar Authorization)
+    fwd_headers = {k: v for k, v in request.headers.items()}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=mcp_app), base_url="http://mcp-internal") as client:
+        resp = await client.post("/", content=body, headers=fwd_headers)
+        return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
 
 # ✅ Monta el MCP en la raíz: todas las rutas (excepto /health) las atiende MCP
 app.mount("/", mcp_app)
