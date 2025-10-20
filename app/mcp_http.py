@@ -141,23 +141,21 @@ def file_list(dir_path: str = ".") -> Dict[str, Any]:
     return {"directory": str(p), "items": items}
 
 # ===========
-# ASGI app y rutas (compatibilidad de versiones)
+# ASGI app y rutas (compatibilidad de versiones) — MONTAJE EN RAÍZ "/"
 # ===========
 # Crea el ASGI de MCP con la API disponible en tu versión
 try:
-    # Algunas versiones nuevas
-    mcp_app = mcp.http_app(path="/mcp")  # puede no existir
+    mcp_app = mcp.http_app(path="/")  # en algunas versiones existe
 except AttributeError:
-    # Versiones anteriores: usa streamable_http_app()
     if hasattr(mcp, "streamable_http_app"):
-        mcp_app = mcp.streamable_http_app()
+        mcp_app = mcp.streamable_http_app()  # versiones previas
     else:
         raise RuntimeError(
             "Tu versión de mcp no soporta ni http_app() ni streamable_http_app(). "
             "Actualiza a mcp[fastmcp]>=1.12.0 en requirements.txt."
         )
 
-# Evitar redirecciones /mcp -> /mcp/ que hacen perder headers en algunos clientes
+# Evitar redirecciones automáticas que pierden headers
 app = FastAPI(title="homolo-mcp", redirect_slashes=False)
 app.add_middleware(BearerAuthMiddleware)
 
@@ -165,5 +163,5 @@ app.add_middleware(BearerAuthMiddleware)
 def health():
     return {"status": "ok"}
 
-# Monta el endpoint MCP en /mcp (usar SIEMPRE la URL sin barra final)
-app.mount("/mcp", mcp_app)
+# ✅ Monta el MCP en la raíz: todas las rutas (excepto /health) las atiende MCP
+app.mount("/", mcp_app)
