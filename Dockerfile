@@ -23,4 +23,4 @@ RUN mkdir -p /data
 EXPOSE 8080
 
 # Comando de arranque (uvicorn ASGI)
-CMD ["uvicorn", "app.mcp_http:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+CMD ["python", "-u", "app/server_http.py"]
